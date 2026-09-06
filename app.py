@@ -120,6 +120,20 @@ st.markdown(
 )
 
 # -----------------------------
+# Sidebar: Settings & API Key
+# -----------------------------
+with st.sidebar:
+    st.header("⚙️ Configuration")
+    user_api_key = st.text_input(
+        "🔑 Gemini API Key (Optional)",
+        type="password",
+        help="Paste your API key here. It stays strictly in your browser session and is NEVER uploaded to GitHub."
+    )
+    st.markdown("---")
+    st.caption("Don't have a key? Get one free at [Google AI Studio](https://aistudio.google.com/).")
+    st.caption("The ML prediction model works completely offline even without an API key.")
+
+# -----------------------------
 # User Input Form
 # -----------------------------
 st.header("📝 Loan Application Form")
@@ -244,9 +258,11 @@ if st.button("Predict Loan Approval"):
     # -----------------------------
     st.subheader("🤖 AI Explanation")
 
-    # Retrieve Gemini API Key from secrets or environment
+    # Priority: 1) User input in sidebar, 2) st.secrets, 3) environment variable
     gemini_key = None
-    if "GEMINI_API_KEY" in st.secrets:
+    if user_api_key and user_api_key.strip():
+        gemini_key = user_api_key.strip()
+    elif "GEMINI_API_KEY" in st.secrets:
         gemini_key = st.secrets["GEMINI_API_KEY"]
     elif "GEMINI_API_KEY" in os.environ:
         gemini_key = os.environ["GEMINI_API_KEY"]
@@ -255,7 +271,27 @@ if st.button("Predict Loan Approval"):
         try:
             import google.generativeai as genai
             genai.configure(api_key=gemini_key)
-            model_ai = genai.GenerativeModel("gemini-1.5-flash")
+
+            # Auto-detect the best available model for this API key
+            selected_model_name = None
+            try:
+                available = [
+                    m.name for m in genai.list_models()
+                    if "generateContent" in getattr(m, "supported_generation_methods", [])
+                ]
+                # Prioritize flash models, then any available model
+                flash_models = [m for m in available if "flash" in m.lower()]
+                if flash_models:
+                    selected_model_name = flash_models[0]
+                elif available:
+                    selected_model_name = available[0]
+            except Exception:
+                pass
+
+            if not selected_model_name:
+                selected_model_name = "gemini-1.5-flash-latest"
+
+            model_ai = genai.GenerativeModel(selected_model_name)
 
             prompt = f"""
 Loan Prediction: {prediction}
@@ -275,9 +311,4 @@ dont say here is the AI explanation just say the above mentioned points,make the
 
         except Exception as e:
             st.warning(f"Could not generate Gemini explanation: {e}")
-    else:
-        st.info(
-            "💡 **Tip for Gemini AI Explanations:** Add your Google Gemini API key to `.streamlit/secrets.toml`:\n\n"
-            "```toml\nGEMINI_API_KEY = \"your_api_key_here\"\n```\n"
-            "Get a free API key at [Google AI Studio](https://aistudio.google.com/)."
-        )
+    
